@@ -5,9 +5,12 @@
  * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
  */
 
-package com.salesforce.cantor.archive;
+package com.salesforce.cantor.archive.file;
 
 import com.salesforce.cantor.Sets;
+import com.salesforce.cantor.archive.SetsChunk;
+import com.salesforce.cantor.misc.CantorProperties;
+import com.salesforce.cantor.misc.archivable.SetsArchiver;
 import org.apache.commons.compress.archivers.ArchiveEntry;
 import org.apache.commons.compress.archivers.ArchiveInputStream;
 import org.apache.commons.compress.archivers.ArchiveOutputStream;
@@ -21,14 +24,32 @@ import java.util.Map;
 
 import static com.salesforce.cantor.common.CommonPreconditions.checkArgument;
 
-public class FileSetsArchiver extends AbstractBaseArchiver {
+public class FileSetsArchiver extends AbstractBaseFileArchiver implements SetsArchiver {
     private static final Logger logger = LoggerFactory.getLogger(FileSetsArchiver.class);
+    private static final String archivePathFormat = "/archive-sets-%s-%s-%d";
 
     public static final int MAX_CHUNK_SIZE = 1_000;
 
-    public static void archive(final Sets sets, final String namespace, final Path destination, final int chunkSize) throws IOException {
+    public FileSetsArchiver(final String baseDirectory, final int chunkCount) {
+        super(baseDirectory, chunkCount);
+    }
+
+    @Override
+    public void archive(final Sets sets, final String namespace) throws IOException {
+        final Path destination = getFileArchive(namespace);
         checkArchiveArguments(sets, namespace, destination);
-        checkArgument(chunkSize <= MAX_CHUNK_SIZE, "chunk size must be <=" + MAX_CHUNK_SIZE);
+        checkArgument(this.chunkCount <= MAX_CHUNK_SIZE, "chunk size must be <=" + MAX_CHUNK_SIZE);
+        doArchive(sets, namespace, destination);
+    }
+
+    @Override
+    public void restore(final Sets sets, final String namespace) throws IOException {
+        final Path archiveFile = getFileArchive(namespace);
+        checkRestoreArguments(sets, namespace, archiveFile);
+        doRestore(sets, namespace, archiveFile);
+    }
+
+    public void doArchive(final Sets sets, final String namespace, final Path destination) throws IOException {
         // get all sets for the namespace, any sets added after won't be archived
         final Collection<String> setNames = sets.sets(namespace);
         try (final ArchiveOutputStream archive = getArchiveOutputStream(destination)) {
@@ -36,7 +57,7 @@ public class FileSetsArchiver extends AbstractBaseArchiver {
             for (final String set : setNames) {
                 logger.info("archiving set {}.{}", namespace, set);
                 int start = 0;
-                Map<String, Long> entries = sets.get(namespace, set, start, chunkSize);
+                Map<String, Long> entries = sets.get(namespace, set, start, this.chunkCount);
                 while (!entries.isEmpty()) {
                     final int end = start + entries.size();
                     final String name = String.format("sets-%s-%s-%s-%s", namespace, set, start, end);
@@ -45,14 +66,13 @@ public class FileSetsArchiver extends AbstractBaseArchiver {
                     writeArchiveEntry(archive, name, chunk.toByteArray());
                     logger.info("archived {} entries ({}-{}) into chunk '{}' for set {}.{}", entries.size(), start, end, name, namespace, set);
                     start = end;
-                    entries = sets.get(namespace, set, start, chunkSize);
+                    entries = sets.get(namespace, set, start, this.chunkCount);
                 }
             }
         }
     }
 
-    public static void restore(final Sets sets, final String namespace, final Path archiveFile) throws IOException {
-        checkRestoreArguments(sets, namespace, archiveFile);
+    public void doRestore(final Sets sets, final String namespace, final Path archiveFile) throws IOException {
         // create the namespace, in case the user hasn't already
         sets.create(namespace);
         try (final ArchiveInputStream archive = getArchiveInputStream(archiveFile)) {
@@ -66,5 +86,12 @@ public class FileSetsArchiver extends AbstractBaseArchiver {
             }
             logger.info("restored {} entries int namespace '{}' from archive file {}", total, namespace, archiveFile);
         }
+    }
+
+    public Path getFileArchive(final String namespace) {
+        return getDirectory(archivePathFormat,
+                CantorProperties.getKingdom(),
+                namespace,
+                this.chunkCount);
     }
 }

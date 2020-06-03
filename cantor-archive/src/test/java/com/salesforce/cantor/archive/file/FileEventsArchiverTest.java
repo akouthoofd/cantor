@@ -5,7 +5,7 @@
  * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
  */
 
-package com.salesforce.cantor.archive;
+package com.salesforce.cantor.archive.file;
 
 import com.salesforce.cantor.Cantor;
 import com.salesforce.cantor.Events;
@@ -27,6 +27,8 @@ public class FileEventsArchiverTest {
     @Test
     public void testArchiveEvents() throws IOException {
         final String basePath = Paths.get(System.getProperty("java.io.tmpdir"), "cantor-archive-sets-test", UUID.randomUUID().toString()).toString();
+        final FileArchiver archiver = new FileArchiver(basePath, 1, TimeUnit.MINUTES.toMillis(1L));
+        final FileEventsArchiver fileEventsArchiver = (FileEventsArchiver) archiver.eventsArchiver();
         final Cantor cantor = getCantor(Paths.get(basePath, "input").toString());
         final String namespace = UUID.randomUUID().toString();
 
@@ -46,7 +48,7 @@ public class FileEventsArchiverTest {
         // archive events in 1 minute chunks
         Files.createDirectories(Paths.get(basePath, "output"));
         final Path outputPath = Paths.get(basePath, "output",  "test-archive.tar.gz");
-        FileEventsArchiver.archive(cantor.events(), namespace, standardStart, now, null, null, TimeUnit.MINUTES.toMillis(1L), outputPath);
+        fileEventsArchiver.doArchive(cantor.events(), namespace, standardStart, now, null, null, outputPath);
         // check file was created and non-empty
         assertTrue(Files.exists(outputPath), "archive file missing");
         assertNotEquals(Files.size(outputPath), 0, "empty archive file shouldn't exist");
@@ -58,7 +60,7 @@ public class FileEventsArchiverTest {
         assertThrows(IOException.class, () -> vCantor.events().get(namespace, standardStart, now, true));
 
         // restore events and check everything got restored
-        FileEventsArchiver.restore(vCantor.events(), vNamespace, outputPath);
+        fileEventsArchiver.doRestore(vCantor.events(), vNamespace, outputPath);
         final List<Event> restored = vCantor.events().get(vNamespace, standardStart, now, true);
         assertEquals(restored.size(), stored.size(), "didn't store expected amount of events");
         for (final Event restoredEvent : restored) {
@@ -69,14 +71,31 @@ public class FileEventsArchiverTest {
 
         assertTrue(Files.exists(outputPath), "archive file missing");
         assertNotEquals(Files.size(outputPath), 0, "empty archive file shouldn't exist");
+    }
 
-        // reset verify namespace
-        vCantor.events().drop(vNamespace);
-        assertThrows(IOException.class, () -> vCantor.events().get(namespace, standardStart, now, true));
+    @Test
+    public void testArchiveEventsOverlap() throws IOException {
+        final String basePath = Paths.get(System.getProperty("java.io.tmpdir"), "cantor-archive-sets-test", UUID.randomUUID().toString()).toString();
+        final FileArchiver archiver = new FileArchiver(basePath, 1, TimeUnit.MINUTES.toMillis(10L));
+        final FileEventsArchiver fileEventsArchiver = (FileEventsArchiver) archiver.eventsArchiver();
+        final Cantor cantor = getCantor(Paths.get(basePath, "input").toString());
+        final String namespace = UUID.randomUUID().toString();
+
+        final long now = System.currentTimeMillis();
+        final long standardWindowMillis = ThreadLocalRandom.current().nextLong(TimeUnit.HOURS.toMillis(1L), TimeUnit.HOURS.toMillis(2L));
+        final long standardStart = now - standardWindowMillis;
+
         // populate events that overlap with previous time window
         final long overlapStart = standardStart - ThreadLocalRandom.current().nextLong(TimeUnit.HOURS.toMillis(1L), TimeUnit.HOURS.toMillis(2L));
         final long overlapEnd = now - ThreadLocalRandom.current().nextLong(TimeUnit.MINUTES.toMillis(15L), TimeUnit.MINUTES.toMillis(30L));
         populateEvents(cantor.events(), namespace, overlapStart, overlapEnd, 1_000);
+
+        // archive some events
+        Files.createDirectories(Paths.get(basePath, "output"));
+        final Path outputPath = Paths.get(basePath, "output",  "test-archive.tar.gz");
+        fileEventsArchiver.doArchive(cantor.events(), namespace, standardStart, now, null, null, outputPath);
+
+        // record unarchived
         final Map<String, Event> overlapStored = new HashMap<>();
         for (final Event event : cantor.events().get(namespace, overlapStart, overlapEnd, true)) {
             assertTrue(event.getMetadata().containsKey("guid"), "missing guid, can't verify");
@@ -85,11 +104,15 @@ public class FileEventsArchiverTest {
 
         // archive overlap
         final Path overlapOutputPath = Paths.get(basePath, "output",  "test-overlap-archive.tar.gz");
-        FileEventsArchiver.archive(cantor.events(), namespace, overlapStart, overlapEnd, null, null, TimeUnit.MINUTES.toMillis(10L), overlapOutputPath);
+        fileEventsArchiver.doArchive(cantor.events(), namespace, overlapStart, overlapEnd, null, null, overlapOutputPath);
+
+        final Cantor vCantor = getCantor(Paths.get(basePath, "input").toString());
+        final String vNamespace = UUID.randomUUID().toString();
+
         // restore overlap
         assertTrue(Files.exists(overlapOutputPath), "archive file missing");
         assertNotEquals(Files.size(overlapOutputPath), 0, "empty archive file shouldn't exist");
-        FileEventsArchiver.restore(vCantor.events(), vNamespace, overlapOutputPath);
+        fileEventsArchiver.doRestore(vCantor.events(), vNamespace, overlapOutputPath);
 
         final List<Event> overlapRestored = vCantor.events().get(vNamespace, overlapStart, overlapEnd, true);
         assertEquals(overlapRestored.size(), overlapStored.size(), "didn't store expected amount of events");
@@ -98,17 +121,32 @@ public class FileEventsArchiverTest {
             final Event expectedEvent = overlapStored.get(restoredEvent.getMetadata().get("guid"));
             assertEventsEqual(restoredEvent, expectedEvent);
         }
+    }
+
+    @Test
+    public void testArchiveEventsEmpty() throws IOException {
+        final String basePath = Paths.get(System.getProperty("java.io.tmpdir"), "cantor-archive-sets-test", UUID.randomUUID().toString()).toString();
+        final FileArchiver archiver = new FileArchiver(basePath, 1, TimeUnit.MINUTES.toMillis(1L));
+        final FileEventsArchiver fileEventsArchiver = (FileEventsArchiver) archiver.eventsArchiver();
+        final Cantor cantor = getCantor(Paths.get(basePath, "input").toString());
+
+        final long now = System.currentTimeMillis();
+        final long standardWindowMillis = ThreadLocalRandom.current().nextLong(TimeUnit.HOURS.toMillis(1L), TimeUnit.HOURS.toMillis(2L));
+        final long standardStart = now - standardWindowMillis;
 
         // check empty namespace archive
         final String emptyNamespace = UUID.randomUUID().toString();
         cantor.events().create(emptyNamespace);
         // archive empty
+        Files.createDirectories(Paths.get(basePath, "output"));
         final Path emptyOutputPath = Paths.get(basePath, "output", "test-empty-archive.tar.gz");
-        FileEventsArchiver.archive(cantor.events(), emptyNamespace, standardStart, now, null, null,  60_000L, emptyOutputPath);
+        fileEventsArchiver.doArchive(cantor.events(), emptyNamespace, standardStart, now, null, null, emptyOutputPath);
         assertTrue(Files.exists(emptyOutputPath), "archiving zero events should still produce file");
+
+        final Cantor vCantor = getCantor(Paths.get(basePath, "input").toString());
         // verify
         final String emptyVerificationNamespace = UUID.randomUUID().toString();
-        FileEventsArchiver.restore(vCantor.events(), emptyVerificationNamespace, emptyOutputPath);
+        fileEventsArchiver.doRestore(vCantor.events(), emptyVerificationNamespace, emptyOutputPath);
         assertTrue(vCantor.events().get(emptyVerificationNamespace, standardStart, now).isEmpty(), "should be no events");
 
         // check queries
@@ -121,12 +159,12 @@ public class FileEventsArchiverTest {
         final Map<String, String> dims = Collections.singletonMap("dim-check", dimTarget.toString());
         final String metaTarget = String.valueOf(ThreadLocalRandom.current().nextBoolean());
         final Map<String, String> meta = Collections.singletonMap("meta-check", metaTarget);
-        FileEventsArchiver.archive(cantor.events(), queryNamespace, standardStart, now, meta, dims,  60_000L, queryOutputPath);
+        fileEventsArchiver.doArchive(cantor.events(), queryNamespace, standardStart, now, meta, dims, queryOutputPath);
         assertTrue(Files.exists(queryOutputPath), "archiving events with queries should still produce file");
 
         // verify
         final String queryVerificationNamespace = UUID.randomUUID().toString();
-        FileEventsArchiver.restore(vCantor.events(), queryVerificationNamespace, queryOutputPath);
+        fileEventsArchiver.doRestore(vCantor.events(), queryVerificationNamespace, queryOutputPath);
         final List<Event> queryEvents = vCantor.events().get(queryVerificationNamespace, standardStart, now, true);
         for (final Event event : queryEvents) {
             assertEquals(event.getDimensions().get("dim-check"), dimTarget);
@@ -157,9 +195,9 @@ public class FileEventsArchiverTest {
             } else {
                 event = new Event(ts(start, end), meta(), dim());
             }
-            assertNull(event.getMetadata().put("guid", UUID.randomUUID().toString()), "already stored this guid");
+            event.getMetadata().put("guid", UUID.randomUUID().toString());
+            assertNull(stored.put(event.getMetadata().get("guid"), event), "already stored this guid");
             events.store(namespace, event);
-            stored.put(event.getMetadata().get("guid"), event);
         }
         return stored;
     }
