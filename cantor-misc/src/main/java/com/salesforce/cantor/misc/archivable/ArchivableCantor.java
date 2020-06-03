@@ -42,7 +42,7 @@ public class ArchivableCantor implements Cantor {
         checkArgument(delegate != null, "null delegate");
         checkArgument(archiveDelegate != null, "null archiveDelegate");
 
-        logger.info("new instance of loggable cantor created");
+        logger.info("new instance of archivable cantor created");
 
         //TODO: add support for ArchivableObjects and ArchivableSets
         this.objects = delegate.objects();
