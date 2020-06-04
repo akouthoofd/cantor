@@ -113,7 +113,7 @@ public class ArchivableEvents extends AbstractBaseArchivableNamespaceable<Events
                 endTimestampMillis
         );
 
-        getDelegate().expire(namespace, endTimestampMillis);
+        getDelegate().delete(namespace, 0, endTimestampMillis, null, null);
     }
 
     /**
