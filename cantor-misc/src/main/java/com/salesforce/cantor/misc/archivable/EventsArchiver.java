@@ -19,10 +19,9 @@ public interface EventsArchiver {
      *  Depending on the implementation {@code restore()} could be called even if the exact query doesn't match any
      *  events in the archive.
      */
-    boolean hasArchives(final Events delegate,
-                        final String namespace,
+    boolean hasArchives(final String namespace,
                         final long startTimestampMillis,
-                        final long endTimestampMillis);
+                        final long endTimestampMillis) throws IOException;
 
     /**
      * Will retrieve and archive all events before the provided timestamp.

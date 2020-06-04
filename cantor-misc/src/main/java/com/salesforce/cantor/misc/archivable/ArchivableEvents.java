@@ -14,7 +14,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Wrapper class around a delegate Events instance, adding logging and time spent.
@@ -39,7 +38,7 @@ public class ArchivableEvents extends AbstractBaseArchivableNamespaceable<Events
                            final boolean includePayloads,
                            final boolean ascending,
                            final int limit) throws IOException {
-        if (getArchiveDelegate().hasArchives(getDelegate(), namespace, startTimestampMillis, endTimestampMillis)) {
+        if (getArchiveDelegate().hasArchives(namespace, startTimestampMillis, endTimestampMillis)) {
             getArchiveDelegate().restore(getDelegate(), namespace, startTimestampMillis, endTimestampMillis);
         }
 
@@ -77,7 +76,7 @@ public class ArchivableEvents extends AbstractBaseArchivableNamespaceable<Events
                                              final Map<String, String> dimensionsQuery,
                                              final int aggregateIntervalMillis,
                                              final AggregationFunction aggregationFunction) throws IOException {
-        if (getArchiveDelegate().hasArchives(getDelegate(), namespace, startTimestampMillis, endTimestampMillis)) {
+        if (getArchiveDelegate().hasArchives(namespace, startTimestampMillis, endTimestampMillis)) {
             getArchiveDelegate().restore(getDelegate(), namespace, startTimestampMillis, endTimestampMillis);
         }
 
@@ -99,7 +98,7 @@ public class ArchivableEvents extends AbstractBaseArchivableNamespaceable<Events
                                 final long endTimestampMillis,
                                 final Map<String, String> metadataQuery,
                                 final Map<String, String> dimensionsQuery) throws IOException {
-        if (getArchiveDelegate().hasArchives(getDelegate(), namespace, startTimestampMillis, endTimestampMillis)) {
+        if (getArchiveDelegate().hasArchives(namespace, startTimestampMillis, endTimestampMillis)) {
             getArchiveDelegate().restore(getDelegate(), namespace, startTimestampMillis, endTimestampMillis);
         }
 
