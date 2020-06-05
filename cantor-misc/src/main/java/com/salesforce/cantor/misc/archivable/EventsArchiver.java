@@ -22,7 +22,7 @@ public interface EventsArchiver {
      */
     boolean hasArchives(String namespace,
                         long startTimestampMillis,
-                        long endTimestampMillis);
+                        long endTimestampMillis) throws IOException;
 
     /**
      * Will retrieve and archive all events before the provided timestamp.

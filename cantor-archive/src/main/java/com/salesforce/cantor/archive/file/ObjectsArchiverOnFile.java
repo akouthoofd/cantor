@@ -5,10 +5,11 @@
  * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
  */
 
-package com.salesforce.cantor.archive;
+package com.salesforce.cantor.archive.file;
 
 import com.google.protobuf.ByteString;
 import com.salesforce.cantor.Objects;
+import com.salesforce.cantor.archive.ObjectsChunk;
 import com.salesforce.cantor.misc.archivable.ObjectsArchiver;
 import org.apache.commons.compress.archivers.ArchiveEntry;
 import org.apache.commons.compress.archivers.ArchiveInputStream;
@@ -23,18 +24,41 @@ import java.util.Map;
 
 import static com.salesforce.cantor.common.CommonPreconditions.checkArgument;
 
-public class ObjectsArchiverOnFile extends AbstractBaseArchiver implements ObjectsArchiver {
+public class ObjectsArchiverOnFile extends AbstractBaseArchiverOnFile implements ObjectsArchiver {
     private static final Logger logger = LoggerFactory.getLogger(ObjectsArchiverOnFile.class);
+    protected static final String archivePathFormat = "/archive-objects-%s-%d";
 
     public static final int MAX_CHUNK_SIZE = 1_000;
 
-    public static void archive(final Objects objects, final String namespace, final Path destination, int chunkSize) throws IOException {
+    public ObjectsArchiverOnFile(final String baseDirectory, final int archiveChunkCount) {
+        super(baseDirectory, archiveChunkCount);
+    }
+
+    @Override
+    public boolean hasArchives(final String namespace) {
+        return false;
+    }
+
+    @Override
+    public void archive(final Objects objects, final String namespace) throws IOException {
+        final Path destination = getFileArchive(namespace);
         checkArchiveArguments(objects, namespace, destination);
-        checkArgument(chunkSize <= MAX_CHUNK_SIZE, "chunk size must be <=" + MAX_CHUNK_SIZE);
+        checkArgument(this.chunkCount <= MAX_CHUNK_SIZE, "chunk size must be <=" + MAX_CHUNK_SIZE);
+        doArchive(objects, namespace, destination);
+    }
+
+    @Override
+    public void restore(final Objects objects, final String namespace) throws IOException {
+        final Path archiveFile = getFileArchive(namespace);
+        checkRestoreArguments(objects, namespace, archiveFile);
+        doRestore(objects, namespace, archiveFile);
+    }
+
+    public void doArchive(final Objects objects, final String namespace, final Path destination) throws IOException {
         try (final ArchiveOutputStream archive = getArchiveOutputStream(destination)) {
             // get objects to archive in chunks in case of large namespaces
             int start = 0;
-            Collection<String> keys = objects.keys(namespace, start, chunkSize);
+            Collection<String> keys = objects.keys(namespace, start, this.chunkCount);
             while (!keys.isEmpty()) {
                 final Map<String, byte[]> chunk = objects.get(namespace, keys);
                 final int end = start + chunk.size();
@@ -43,13 +67,12 @@ public class ObjectsArchiverOnFile extends AbstractBaseArchiver implements Objec
                 writeArchiveEntry(archive, name, getBytes(chunk));
                 logger.info("archived {} objects ({}-{}) into chunk '{}'", chunk.size(), start, end, name);
                 start = end;
-                keys = objects.keys(namespace, start, chunkSize);
+                keys = objects.keys(namespace, start, this.chunkCount);
             }
         }
     }
 
-    public static void restore(final Objects objects, final String namespace, final Path archiveFile) throws IOException {
-        checkRestoreArguments(objects, namespace, archiveFile);
+    public void doRestore(final Objects objects, final String namespace, final Path archiveFile) throws IOException {
         // create the namespace, in case the user hasn't already
         objects.create(namespace);
         try (final ArchiveInputStream archive = getArchiveInputStream(archiveFile)) {
@@ -67,7 +90,7 @@ public class ObjectsArchiverOnFile extends AbstractBaseArchiver implements Objec
         }
     }
 
-    private static byte[] getBytes(final Map<String, byte[]> chunk) {
+    private byte[] getBytes(final Map<String, byte[]> chunk) {
         final ObjectsChunk.Builder builder = ObjectsChunk.newBuilder();
         // have to convert all byte arrays into proto byte strings
         for (final Map.Entry<String, byte[]> entry : chunk.entrySet()) {
@@ -76,18 +99,9 @@ public class ObjectsArchiverOnFile extends AbstractBaseArchiver implements Objec
         return builder.build().toByteArray();
     }
 
-    @Override
-    public boolean hasArchives(final String namespace) {
-        return false;
-    }
-
-    @Override
-    public void archive(final Objects objects, final String namespace) throws IOException {
-
-    }
-
-    @Override
-    public void restore(final Objects objects, final String namespace) throws IOException {
-
+    public Path getFileArchive(final String namespace) {
+        return getFile(archivePathFormat,
+                namespace,
+                this.chunkCount);
     }
 }
