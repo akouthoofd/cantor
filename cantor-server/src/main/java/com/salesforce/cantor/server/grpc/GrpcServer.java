@@ -14,10 +14,7 @@ import com.salesforce.cantor.grpc.auth.*;
 import com.salesforce.cantor.server.CantorEnvironment;
 import com.salesforce.cantor.server.Constants;
 import com.salesforce.cantor.server.utils.CantorFactory;
-import io.grpc.Context;
-import io.grpc.Server;
-import io.grpc.netty.NettyServerBuilder;
-import io.netty.channel.nio.NioEventLoopGroup;
+import io.grpc.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,12 +39,8 @@ public class GrpcServer {
 
         final Cantor unauthenticatedCantor = cantorProvider.getCantor();
         final AuthorizedCantorGrpc cantor = new AuthorizedCantorGrpc(unauthenticatedCantor, "secret");
-        final NettyServerBuilder serverBuilder = NettyServerBuilder.forPort(port)
-                .workerEventLoopGroup(new NioEventLoopGroup(
-                        8,  // max of exactly 8 event loop threads
-                        new ThreadFactoryBuilder().setNameFormat("cantor-grpc-event-loop-%d").build())
-                )
-                .maxMessageSize(64 * 1024 * 1024) // 64MB
+        final NettyServerBuilder serverBuilder = ServerBuilder.forPort(port)
+                .maxInboundMessageSize(64 * 1024 * 1024) // 64MB
                 .addService(new EventsGrpcService(cantor))
                 .addService(new SetsGrpcService(cantor))
                 .addService(new ObjectsGrpcService(cantor))

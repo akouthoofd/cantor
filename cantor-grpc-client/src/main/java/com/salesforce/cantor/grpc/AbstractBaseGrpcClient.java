@@ -36,13 +36,13 @@ public abstract class AbstractBaseGrpcClient<StubType extends AbstractStub<StubT
                                      final String target,
                                      final Credentials credentials) {
         final NettyChannelBuilder channelBuilder = NettyChannelBuilder.forTarget(target)
-            .maxInboundMessageSize(32 * 1024 * 1024)  // 32MB
-            .executor(
-                Executors.newFixedThreadPool(
-                    16, // exactly 16 concurrent worker threads
-                    new ThreadFactoryBuilder().setNameFormat("cantor-client-channel-%d").build())
-            )
-            .usePlaintext(true);
+                .maxInboundMessageSize(32 * 1024 * 1024)  // 32MB
+                .executor(
+                        Executors.newFixedThreadPool(
+                                16, // exactly 16 concurrent worker threads
+                                new ThreadFactoryBuilder().setNameFormat("cantor-client-channel-%d").build())
+                )
+                .usePlaintext(true);
         if (credentials != null) {
             channelBuilder.intercept(new CredentialsProviderInterceptor(credentials));
         }

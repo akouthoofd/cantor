@@ -142,8 +142,8 @@ public class CantorFactory {
             // by convention, the first argument to all methods is the namespace
             final String scopedNamespace = (String) args[0];
 
-            // if there is no scope in the namespace, pick the default instance
-            if (!scopedNamespace.contains(scopeDelimiter)) {
+            // if there is no scope in the namespace (i.e., no '.' or starts with it), pick the default instance
+            if (!scopedNamespace.contains(scopeDelimiter) || scopedNamespace.startsWith(scopeDelimiter)) {
                 return method.invoke(this.delegates.get(NamespaceableProvider.DEFAULT_SCOPE), args);
             }
             final String scope = scopedNamespace.substring(0, scopedNamespace.indexOf(scopeDelimiter));
@@ -151,10 +151,14 @@ public class CantorFactory {
 
             checkArgument(this.delegates.containsKey(scope), "invalid scope: " + scope);
 
+            // invoke the proxied method and pass all parameters
             if (args.length == 1) {
                 return method.invoke(this.delegates.get(scope), namespace);
             }
-            return method.invoke(this.delegates.get(scope), namespace, Arrays.copyOfRange(args, 1, args.length));
+            final Object[] newArgs = new Object[args.length];
+            newArgs[0] = namespace;
+            System.arraycopy(args, 1, newArgs, 1, args.length - 1);
+            return method.invoke(this.delegates.get(scope), newArgs);
         }
 
         private Object doNamespaces() throws IOException {
@@ -163,7 +167,12 @@ public class CantorFactory {
                 final Collection<String> namespaces = entry.getValue().namespaces();
                 for (final String namespace : namespaces) {
                     // attach scope to namespaces
-                    results.add(String.format("%s.%s", entry.getKey(), namespace));
+                    final String scope = entry.getKey();
+                    if (NamespaceableProvider.DEFAULT_SCOPE.equals(scope)) {
+                        results.add(namespace);
+                    } else {
+                        results.add(String.format("%s.%s", scope, namespace));
+                    }
                 }
             }
             return results;

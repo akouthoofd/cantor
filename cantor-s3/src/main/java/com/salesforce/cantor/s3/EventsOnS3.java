@@ -27,6 +27,7 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.*;
@@ -45,23 +46,24 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
     // parameter used for path to file for the sifting logger
     private static final String siftingDiscriminatorKey = "path";
 
-    private final AtomicReference<String> currentFlushCycleGuid = new AtomicReference<>();
-    private final Gson parser = new GsonBuilder().create();
-    private final Logger siftingLogger = initSiftingLogger();
+    private static final AtomicReference<String> currentFlushCycleGuid = new AtomicReference<>();
+    private static final Gson parser = new GsonBuilder().create();
+    private static final Logger siftingLogger = initSiftingLogger();
+    private static final AtomicBoolean isInitialized = new AtomicBoolean(false);
 
-    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+    private static final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
     private final String bufferDirectory;
 
     // cantor-events-<namespace>/<startTimestamp>-<endTimestamp>
-    private static final String objectKeyPrefix = "cantor-events-%s/";
+    private static final String objectKeyPrefix = "cantor-events";
 
     // date directoryFormatter for flush cycle name calculation
-    private final DateFormat cycleNameFormatter = new SimpleDateFormat("YYYY-MM-dd_HH-mm-ss");
+    private static final DateFormat cycleNameFormatter = new SimpleDateFormat("YYYY-MM-dd_HH-mm-ss");
     // date directoryFormatter for converting an event timestamp to a hierarchical directory structure
-    private final DateFormat directoryFormatter = new SimpleDateFormat("YYYY/MM/dd/HH/mm");
-    private final DateFormat directoryFormatterHourly = new SimpleDateFormat("YYYY/MM/dd/HH/");
-    private final DateFormat directoryFormatterDayly = new SimpleDateFormat("YYYY/MM/dd/");
-    private final DateFormat directoryFormatterMonthly = new SimpleDateFormat("YYYY/MM/");
+    private static final DateFormat directoryFormatter = new SimpleDateFormat("YYYY/MM/dd/HH/mm");
+    private static final DateFormat directoryFormatterHourly = new SimpleDateFormat("YYYY/MM/dd/HH/");
+    private static final DateFormat directoryFormatterDayly = new SimpleDateFormat("YYYY/MM/dd/");
+    private static final DateFormat directoryFormatterMonthly = new SimpleDateFormat("YYYY/MM/");
     private final TransferManager s3TransferManager;
 
     public EventsOnS3(final AmazonS3 s3Client,
@@ -92,7 +94,10 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
         this.s3TransferManager = builder.build();
 
         // schedule flush cycle to start immediately
-        this.executor.scheduleAtFixedRate(this::flush, 0, flushIntervalSeconds, TimeUnit.SECONDS);
+        if (!isInitialized.getAndSet(true)) {
+            rollover();
+            executor.scheduleAtFixedRate(this::flush, 0, flushIntervalSeconds, TimeUnit.SECONDS);
+        }
     }
 
     @Override
@@ -134,29 +139,6 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
     }
 
     @Override
-    public int delete(final String namespace,
-                      final long startTimestampMillis,
-                      final long endTimestampMillis,
-                      final Map<String, String> metadataQuery,
-                      final Map<String, String> dimensionsQuery) throws IOException {
-//        throw new UnsupportedOperationException("delete is not supported");
-        return -1;
-    }
-
-    @Override
-    public Map<Long, Double> aggregate(final String namespace,
-                                       final String dimension,
-                                       final long startTimestampMillis,
-                                       final long endTimestampMillis,
-                                       final Map<String, String> metadataQuery,
-                                       final Map<String, String> dimensionsQuery,
-                                       final int aggregateIntervalMillis,
-                                       final AggregationFunction aggregationFunction) throws IOException {
-//        throw new UnsupportedOperationException("aggregate is not supported");
-        return Collections.emptyMap();
-    }
-
-    @Override
     public Set<String> metadata(final String namespace,
                                 final String metadataKey,
                                 final long startTimestampMillis,
@@ -192,18 +174,18 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
 
     @Override
     protected String getObjectKeyPrefix(final String namespace) {
-        return String.format(objectKeyPrefix, namespace);
+        return String.format("%s/%s", objectKeyPrefix, trim(namespace));
     }
 
     private LoadingCache<String, AtomicLong> payloadOffset = CacheBuilder.newBuilder()
             .build(new CacheLoader<String, AtomicLong>() {
                 @Override
-                public AtomicLong load(final String path) {
+                public AtomicLong load(final String ignoredPath) {
                     return new AtomicLong(0);
                 }
             });
 
-    private Logger initSiftingLogger() {
+    private static Logger initSiftingLogger() {
         final LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
         final SiftingAppender siftingAppender = new SiftingAppender();
         final String loggerName = "cantor-s3-events-sifting-logger";
@@ -242,7 +224,7 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
 
     // storing each event in a json lines format to conform to s3 selects preferred format,
     // and payloads encoded in base64 in a separate file
-    private synchronized void doStore(final String namespace, final Collection<Event> batch) throws IOException {
+    private synchronized void doStore(final String namespace, final Collection<Event> batch) {
         for (final Event event : batch) {
             final Map<String, String> metadata = new HashMap<>(event.getMetadata());
             final Map<String, Double> dimensions = new HashMap<>(event.getDimensions());
@@ -251,7 +233,7 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
             final String currentCycleName = getRolloverCycleName();
             final String cyclePath = getPath(currentCycleName);
             final String filePath = String.format("%s/%s/%s.%s",
-                    cyclePath, trim(namespace), this.directoryFormatter.format(event.getTimestampMillis()), currentCycleName
+                    cyclePath, getObjectKeyPrefix(namespace), directoryFormatter.format(event.getTimestampMillis()), currentCycleName
             );
             final String payloadFilePath = filePath + ".b64";
             final String eventsFilePath = filePath + ".json";
@@ -266,13 +248,13 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
                 dimensions.put(dimensionKeyPayloadLength, (double) payloadBase64.length());
             }
             final Event toWrite = new Event(event.getTimestampMillis(), metadata, dimensions);
-            append(eventsFilePath, this.parser.toJson(toWrite));
+            append(eventsFilePath, parser.toJson(toWrite));
         }
     }
 
-    private void append(final String path, final String message) {
+    private synchronized void append(final String path, final String message) {
         MDC.put(siftingDiscriminatorKey, path);
-        this.siftingLogger.info(message);
+        siftingLogger.info(message);
         MDC.remove(siftingDiscriminatorKey);
     }
 
@@ -380,7 +362,7 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
         final Scanner lineReader = new Scanner(jsonLines);
         // json events are stored in json lines format, so one json object per line
         while (lineReader.hasNext()) {
-            final Event event = this.parser.fromJson(lineReader.nextLine(), Event.class);
+            final Event event = parser.fromJson(lineReader.nextLine(), Event.class);
             // if include payloads is true, find the payload offset and length, do a range call to s3 to pull
             // the base64 representation of the payload bytes
             if (includePayloads
@@ -421,7 +403,7 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
         final Scanner lineReader = new Scanner(jsonLines);
         // json events are stored in json lines format, so one json object per line
         while (lineReader.hasNext()) {
-            final Map<String, String> metadata = this.parser.fromJson(lineReader.nextLine(), Map.class);
+            final Map<String, String> metadata = parser.fromJson(lineReader.nextLine(), Map.class);
             if (metadata.containsKey(metadataKey)) {
                 results.add(metadata.get(metadataKey));
             }
@@ -447,7 +429,7 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
         return String.format("SELECT * FROM s3object[*] s WHERE %s %s %s",
                 timestampClause,
                 getMetadataQuerySql(metadataQuery, false),
-                getDimensionQuerySql(dimensionsQuery, false)
+                getDimensionsQuerySql(dimensionsQuery, false)
         );
     }
 
@@ -461,7 +443,7 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
                 metadataKey,
                 timestampClause,
                 getMetadataQuerySql(metadataQuery, false),
-                getDimensionQuerySql(dimensionsQuery, false)
+                getDimensionsQuerySql(dimensionsQuery, false)
         );
     }
 
@@ -470,10 +452,10 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
         final Set<String> prefixes = new HashSet<>();
         long start = startTimestampMillis;
         while (start <= endTimestampMillis) {
-            prefixes.add(String.format("%s/%s", trim(namespace), this.directoryFormatter.format(start)));
+            prefixes.add(String.format("%s/%s", getObjectKeyPrefix(namespace), directoryFormatter.format(start)));
             start += TimeUnit.MINUTES.toMillis(1);
         }
-        prefixes.add(String.format("%s/%s", trim(namespace), this.directoryFormatter.format(endTimestampMillis)));
+        prefixes.add(String.format("%s/%s", getObjectKeyPrefix(namespace), directoryFormatter.format(endTimestampMillis)));
         final Set<String> matchingKeys = new ConcurrentSkipListSet<>();
         final ExecutorService executor = Executors.newWorkStealingPool(64);
         final CompletionService<List<Event>> completionService = new ExecutorCompletionService<>(executor);
@@ -575,7 +557,7 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
     // '>=': greater than or equals - 'cpu' => '>=90'
     // '<': less than - 'cpu' => '<90'
     // '<=': less than or equals - 'cpu' => '<=90'
-    private String getDimensionQuerySql(final Map<String, String> dimensionsQuery, final boolean invert) {
+    private String getDimensionsQuerySql(final Map<String, String> dimensionsQuery, final boolean invert) {
         if (dimensionsQuery.isEmpty()) {
             return "";
         }
@@ -629,16 +611,18 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
     }
 
     // update the rollover cycle guid and return the previous one
-    private String rollover() {
+    private static String rollover() {
         // cycle name is: <timestamp>-<guid>
         final String rolloverCycleName = String.format("%s.%s",
-                this.cycleNameFormatter.format(System.currentTimeMillis()), UUID.randomUUID().toString().replaceAll("-", ""));
+                cycleNameFormatter.format(System.currentTimeMillis()),
+                UUID.randomUUID().toString().replaceAll("-", "")
+        );
         logger.info("starting new cycle: {}", rolloverCycleName);
-        return this.currentFlushCycleGuid.getAndSet(rolloverCycleName);
+        return currentFlushCycleGuid.getAndSet(rolloverCycleName);
     }
 
     private String getRolloverCycleName() {
-        return this.currentFlushCycleGuid.get();
+        return currentFlushCycleGuid.get();
     }
 
     private String getPath(final String rolloverCycleName) {

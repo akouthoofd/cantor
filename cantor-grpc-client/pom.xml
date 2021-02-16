@@ -20,12 +20,12 @@
     <parent>
         <groupId>com.salesforce.cantor</groupId>
         <artifactId>cantor-parent</artifactId>
-        <version>0.3.16-SNAPSHOT</version>
+        <version>0.4.5</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
     <properties>
-        <grpc.version>1.8.0</grpc.version>
+        <grpc.version>1.34.0</grpc.version>
         <netty.version>2.0.8.Final</netty.version>
     </properties>
 
@@ -39,7 +39,7 @@
         <!--GRPC-->
         <dependency>
             <groupId>io.grpc</groupId>
-            <artifactId>grpc-netty</artifactId>
+            <artifactId>grpc-netty-shaded</artifactId>
             <version>${grpc.version}</version>
         </dependency>
         <dependency>

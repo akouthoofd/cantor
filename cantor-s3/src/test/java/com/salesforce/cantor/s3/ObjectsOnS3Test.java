@@ -20,12 +20,12 @@ import java.io.IOException;
 //@Listeners(value = { S3MockListener.class })
 //@Test(enabled = false)
 //public class ObjectsOnS3Test extends AbstractBaseObjectsTest {
-
+//
 //    @Override
 //    protected double getStoreMagnitude() {
 //        return 0.25;
 //    }
-
+//
 //    @Override
 //    protected Cantor getCantor() throws IOException {
 //        final AmazonS3 s3Client = S3Mock.getInstance().createS3Client("us-west-1");
