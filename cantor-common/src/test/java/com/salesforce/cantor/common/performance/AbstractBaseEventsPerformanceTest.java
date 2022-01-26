@@ -13,7 +13,9 @@ import org.testng.ITestResult;
 import org.testng.annotations.*;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
@@ -49,9 +51,6 @@ public abstract class AbstractBaseEventsPerformanceTest extends AbstractBaseCant
             final Percentile storageBatchStats = doTestBatchStorageOfEvents(events, storedEvents);
             this.percentiles.put(String.format("storeBatch%d-%d", getManyCount(), iteration), storageBatchStats);
 
-            final Percentile deletionStats = doTestDeleteOfEvents(events, storedEvents);
-            this.percentiles.put(String.format("delete%d-%d", getManyCount(), iteration), deletionStats);
-
             final Percentile storageStats = doTestStorageOfEvents(events, storedEvents);
             this.percentiles.put(String.format("store%d-%d", getManyCount(), iteration), storageStats);
 
@@ -73,9 +72,6 @@ public abstract class AbstractBaseEventsPerformanceTest extends AbstractBaseCant
             final Percentile storageBatchStats = doTestBatchStorageOfEvents(events, storedEvents);
             this.percentiles.put(String.format("storeBatch%d-%d", getManyCount(), iteration), storageBatchStats);
 
-            final Percentile deletionStats = doTestDeleteOfEvents(events, storedEvents);
-            this.percentiles.put(String.format("delete%d-%d", getManyCount(), iteration), deletionStats);
-
             final Percentile storageStats = doTestStorageOfEvents(events, storedEvents);
             this.percentiles.put(String.format("store%d-%d", getManyCount(), iteration), storageStats);
 
@@ -87,27 +83,25 @@ public abstract class AbstractBaseEventsPerformanceTest extends AbstractBaseCant
         }
     }
 
-    @Test(enabled = false)
+    @Test(enabled = true)
     public void testFewSmallEvents() throws IOException {
         final Events events = getEvents();
-        final List<Events.Event> storedEvents = generateEvents(getFewCount(), 5, 10, 1024);
         for (int iteration = 0; iteration < getIterations(); iteration++) {
+            final List<Events.Event> storedEvents = generateEvents(getFewCount(), 5, 10, 0);
             getEvents().create(this.namespace);
             // batch is a single
             final Percentile storageBatchStats = doTestBatchStorageOfEvents(events, storedEvents);
-            this.percentiles.put(String.format("storeBatch%d-%d", getManyCount(), iteration), storageBatchStats);
+            this.percentiles.put(String.format("storeBatch%d-%d", getFewCount(), iteration), storageBatchStats);
 
-            final Percentile deletionStats = doTestDeleteOfEvents(events, storedEvents);
-            this.percentiles.put(String.format("delete%d-%d", getManyCount(), iteration), deletionStats);
+//            final Percentile storageStats = doTestStorageOfEvents(events, storedEvents);
+//            this.percentiles.put(String.format("store%d-%d", getManyCount(), iteration), storageStats);
 
-            final Percentile storageStats = doTestStorageOfEvents(events, storedEvents);
-            this.percentiles.put(String.format("store%d-%d", getManyCount(), iteration), storageStats);
-
-            final Percentile retrievalStats = doTestRetrievalOfEvents(events, storedEvents);
-            this.percentiles.put(String.format("get%d-%d", getManyCount(), iteration), retrievalStats);
+            final Percentile retrievalStats = doTestRetrievalOfEvents(events, storedEvents, getFewCount());
+            this.percentiles.put(String.format("get%d-%d", getFewCount(), iteration), retrievalStats);
 
             final Percentile dropStats = doTestDropOfEvents(events);
-            this.percentiles.put(String.format("drop%d-%d", getManyCount(), iteration), dropStats);
+            this.percentiles.put(String.format("drop%d-%d", getFewCount(), iteration), dropStats);
+            rotate();
         }
     }
 
@@ -120,9 +114,6 @@ public abstract class AbstractBaseEventsPerformanceTest extends AbstractBaseCant
             // batch is a single
             final Percentile storageBatchStats = doTestBatchStorageOfEvents(events, storedEvents);
             this.percentiles.put(String.format("storeBatch%d-%d", getManyCount(), iteration), storageBatchStats);
-
-            final Percentile deletionStats = doTestDeleteOfEvents(events, storedEvents);
-            this.percentiles.put(String.format("delete%d-%d", getManyCount(), iteration), deletionStats);
 
             final Percentile storageStats = doTestStorageOfEvents(events, storedEvents);
             this.percentiles.put(String.format("store%d-%d", getManyCount(), iteration), storageStats);
@@ -137,7 +128,7 @@ public abstract class AbstractBaseEventsPerformanceTest extends AbstractBaseCant
 
     // override the number of times the performance test runs
     protected int getIterations() {
-        return 10;
+        return 9;
     }
 
     // override change the count stored by a "many" performance test
@@ -146,8 +137,14 @@ public abstract class AbstractBaseEventsPerformanceTest extends AbstractBaseCant
     }
 
     // override change the count stored by a "few" performance test
+    int index = 0;
+    final int[] counts = new int[]{12, 24, 7 * 24};
+    private void rotate() {
+        index = (index == counts.length - 1) ? 0 : index + 1;
+    }
+
     protected int getFewCount() {
-        return 30;
+        return counts[index];
     }
 
     private Percentile doTestDropOfEvents(final Events events) throws IOException {
@@ -159,30 +156,6 @@ public abstract class AbstractBaseEventsPerformanceTest extends AbstractBaseCant
         logger.info("drop total duration: {}ms", TimeUnit.NANOSECONDS.toMillis(finalTimestamp - initialTimestamp));
         final Percentile percentile = new Percentile();
         percentile.setData(new double[] {TimeUnit.NANOSECONDS.toMillis(finalTimestamp - initialTimestamp)});
-        return percentile;
-    }
-
-    private Percentile doTestDeleteOfEvents(final Events events, final List<Events.Event> storedEvents) throws IOException {
-        logger.info("calling events.delete() for {} events in 100 event batches", storedEvents.size());
-        final double[] deletionStats = new double[(storedEvents.size() / 100) + 1];
-        final long initialTimestamp = System.nanoTime();
-        for (int eventIndex = 99, statIndex = 0; eventIndex < storedEvents.size(); eventIndex += 100, statIndex++) {
-            final Events.Event batchStart = storedEvents.get(eventIndex - 99);
-            final Events.Event batchEnd = storedEvents.get(Math.min(eventIndex, storedEvents.size() - 1));
-            logger.debug("calling events.delete() {}-{}", batchStart.getTimestampMillis(), batchEnd.getTimestampMillis());
-            final long startTimestamp = System.nanoTime();
-            events.delete(this.namespace, batchStart.getTimestampMillis(), batchEnd.getTimestampMillis(), null, null);
-            final long afterStoreTimestamp = System.nanoTime();
-
-            final long duration = TimeUnit.NANOSECONDS.toMillis(afterStoreTimestamp - startTimestamp);
-            deletionStats[statIndex] = duration;
-        }
-        final long finalTimestamp = System.nanoTime();
-
-        logger.info("deletion total duration: {}ms", TimeUnit.NANOSECONDS.toMillis(finalTimestamp - initialTimestamp));
-        logger.debug("event deletion durations: {}", Arrays.toString(deletionStats));
-        final Percentile percentile = new Percentile();
-        percentile.setData(deletionStats);
         return percentile;
     }
 
@@ -234,11 +207,15 @@ public abstract class AbstractBaseEventsPerformanceTest extends AbstractBaseCant
     }
 
     private Percentile doTestRetrievalOfEvents(final Events events, final List<Events.Event> storedEvents) throws IOException {
-        logger.info("calling events.get() to retrieve {} events in 100 event batches", storedEvents.size());
-        final double[] storageStats = new double[(storedEvents.size() / 100) + 1];
+        return doTestRetrievalOfEvents(events, storedEvents, 100);
+    }
+
+    private Percentile doTestRetrievalOfEvents(final Events events, final List<Events.Event> storedEvents, final int batchCount) throws IOException {
+        logger.info("calling events.get() to retrieve {} events in {} event batches", storedEvents.size(), batchCount);
+        final double[] storageStats = new double[(storedEvents.size() / batchCount) + 1];
         final long initialTimestamp = System.nanoTime();
-        for (int eventIndex = 99, statIndex = 0; eventIndex < storedEvents.size(); eventIndex += 100, statIndex++) {
-            final Events.Event batchStart = storedEvents.get(eventIndex - 99);
+        for (int eventIndex = batchCount - 1, statIndex = 0; eventIndex < storedEvents.size(); eventIndex += batchCount, statIndex++) {
+            final Events.Event batchStart = storedEvents.get(eventIndex - (batchCount - 1));
             final Events.Event batchEnd = storedEvents.get(Math.min(eventIndex, storedEvents.size() - 1));
             final long startTimestamp = System.nanoTime();
             events.get(this.namespace, batchStart.getTimestampMillis(), batchEnd.getTimestampMillis(), true);
@@ -256,17 +233,18 @@ public abstract class AbstractBaseEventsPerformanceTest extends AbstractBaseCant
         return percentile;
     }
 
+    private static final long time = 1642982400000L;
     private List<Events.Event> generateEvents(final int eventCount, final int originRandom, final int boundRandom, final int payloadSize) {
         final List<Events.Event> events = new ArrayList<>();
         final int metadataCount = ThreadLocalRandom.current().nextInt(originRandom, boundRandom);
         final int dimensionCount = ThreadLocalRandom.current().nextInt(originRandom, boundRandom);
-        long timestamp = System.currentTimeMillis();
+        long timestamp = time;
         for (int i = 0; i < eventCount; ++i) {
             final Map<String, String> metadata = getRandomMetadata(metadataCount);
             final Map<String, Double> dimensions = getRandomDimensions(dimensionCount);
-            final byte[] payload = getRandomPayload(payloadSize);
-            timestamp += 1;
+            final byte[] payload = getRandomPayload(0);
             events.add(new Events.Event(timestamp, metadata, dimensions, payload));
+            timestamp += TimeUnit.HOURS.toMillis(1);
         }
 
         return events;

@@ -19,27 +19,18 @@ import java.io.*;
 import java.util.Scanner;
 
 public class EventsOnH2PerformanceTest extends AbstractBaseEventsPerformanceTest {
-    private static final String credentialsLocation = "/path/to/creds";
+    private static final String credentialsLocation = "/Users/akouthoofd/.aws/credentials";
 
     @Override
     protected Cantor getCantor() throws IOException {
         final AmazonS3 s3Client = createS3Client();
-        return new CantorOnS3(s3Client, "default");
+        return new CantorOnS3(s3Client, "warden-cantor--monitoring--dev1--us-west-2--dev");
     }
 
     // insert real S3 client here to run integration testing
     private AmazonS3 createS3Client() throws IOException {
-        final File s3File = new File(credentialsLocation);
-        try (final Scanner csvReader = new Scanner(new FileInputStream(s3File))) {
-            csvReader.useDelimiter(",");
 
-            final String keyId = csvReader.next();
-            final String accessKey = csvReader.next();
-
-            final AWSCredentials sessionCredentials = new BasicAWSCredentials(keyId, accessKey);
             return AmazonS3ClientBuilder.standard().withRegion(Regions.US_WEST_2)
-                    .withCredentials(new AWSStaticCredentialsProvider(sessionCredentials))
                     .build();
-        }
     }
 }
