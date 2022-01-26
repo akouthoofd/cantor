@@ -37,7 +37,7 @@ public abstract class AbstractBaseEventsPerformanceTest extends AbstractBaseCant
 
     @AfterMethod
     public void after(final ITestResult result) throws Exception {
-        getEvents().drop(this.namespace);
+//        getEvents().drop(this.namespace);
         super.printStatsTable(result.getName(), this.percentiles);
     }
 
@@ -84,23 +84,27 @@ public abstract class AbstractBaseEventsPerformanceTest extends AbstractBaseCant
     }
 
     @Test(enabled = true)
-    public void testFewSmallEvents() throws IOException {
+    public void testFewSmallEvents() throws IOException, InterruptedException {
         final Events events = getEvents();
+        getEvents().create(this.namespace);
+        final List<Events.Event> storedEvents = generateEvents(getFewCount(), 5, 10, 0);
+        // batch is a single
+        final Percentile storageBatchStats = doTestBatchStorageOfEvents(events, storedEvents);
+        this.percentiles.put(String.format("storeBatch%d-%d", getFewCount(), 0), storageBatchStats);
+        Thread.sleep(60000);
+        for (int noop = 0; noop < getIterations(); noop++) {
         for (int iteration = 0; iteration < getIterations(); iteration++) {
-            final List<Events.Event> storedEvents = generateEvents(getFewCount(), 5, 10, 0);
-            getEvents().create(this.namespace);
-            // batch is a single
-            final Percentile storageBatchStats = doTestBatchStorageOfEvents(events, storedEvents);
-            this.percentiles.put(String.format("storeBatch%d-%d", getFewCount(), iteration), storageBatchStats);
 
 //            final Percentile storageStats = doTestStorageOfEvents(events, storedEvents);
 //            this.percentiles.put(String.format("store%d-%d", getManyCount(), iteration), storageStats);
 
-            final Percentile retrievalStats = doTestRetrievalOfEvents(events, storedEvents, getFewCount());
+            final List<Events.Event> partialList = storedEvents.subList(0, getFewCount());
+            final Percentile retrievalStats = doTestRetrievalOfEvents(events, partialList, getFewCount());
             this.percentiles.put(String.format("get%d-%d", getFewCount(), iteration), retrievalStats);
 
-            final Percentile dropStats = doTestDropOfEvents(events);
-            this.percentiles.put(String.format("drop%d-%d", getFewCount(), iteration), dropStats);
+//            final Percentile dropStats = doTestDropOfEvents(events);
+//            this.percentiles.put(String.format("drop%d-%d", getFewCount(), 0), dropStats);
+        }
             rotate();
         }
     }
@@ -128,7 +132,7 @@ public abstract class AbstractBaseEventsPerformanceTest extends AbstractBaseCant
 
     // override the number of times the performance test runs
     protected int getIterations() {
-        return 9;
+        return 3;
     }
 
     // override change the count stored by a "many" performance test
@@ -138,7 +142,7 @@ public abstract class AbstractBaseEventsPerformanceTest extends AbstractBaseCant
 
     // override change the count stored by a "few" performance test
     int index = 0;
-    final int[] counts = new int[]{12, 24, 7 * 24};
+    final int[] counts = new int[]{7 * 24, 12, 24};
     private void rotate() {
         index = (index == counts.length - 1) ? 0 : index + 1;
     }
