@@ -17,9 +17,9 @@
     <artifactId>cantor-http-service</artifactId>
 
     <properties>
-        <spring.jersey.version>2.7.13</spring.jersey.version>
-        <swagger.version>2.1.11</swagger.version>
-        <swagger.classgraph.version>4.8.131</swagger.classgraph.version>
+        <spring.jersey.version>3.1.4</spring.jersey.version>
+        <swagger.version>2.2.15</swagger.version>
+        <snakeyaml.version>2.0</snakeyaml.version>
     </properties>
 
     <dependencies>
@@ -46,17 +46,11 @@
             <groupId>io.swagger.core.v3</groupId>
             <artifactId>swagger-jaxrs2</artifactId>
             <version>${swagger.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>io.github.classgraph</groupId>
-                    <artifactId>classgraph</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
-            <groupId>io.github.classgraph</groupId>
-            <artifactId>classgraph</artifactId>
-            <version>${swagger.classgraph.version}</version>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <version>${snakeyaml.version}</version>
         </dependency>
         <!--JSON/GSON-->
         <dependency>
