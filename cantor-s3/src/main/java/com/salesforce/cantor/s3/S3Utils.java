@@ -1,14 +1,42 @@
 package com.salesforce.cantor.s3;
 
 import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.*;
-import com.google.common.cache.*;
+import com.amazonaws.services.s3.model.CSVInput;
+import com.amazonaws.services.s3.model.CSVOutput;
+import com.amazonaws.services.s3.model.CannedAccessControlList;
+import com.amazonaws.services.s3.model.CompressionType;
+import com.amazonaws.services.s3.model.DeleteObjectsRequest;
+import com.amazonaws.services.s3.model.ExpressionType;
+import com.amazonaws.services.s3.model.FileHeaderInfo;
+import com.amazonaws.services.s3.model.GetObjectRequest;
+import com.amazonaws.services.s3.model.InputSerialization;
+import com.amazonaws.services.s3.model.JSONInput;
+import com.amazonaws.services.s3.model.JSONOutput;
+import com.amazonaws.services.s3.model.JSONType;
+import com.amazonaws.services.s3.model.ObjectListing;
+import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.OutputSerialization;
+import com.amazonaws.services.s3.model.PutObjectRequest;
+import com.amazonaws.services.s3.model.S3Object;
+import com.amazonaws.services.s3.model.S3ObjectSummary;
+import com.amazonaws.services.s3.model.SelectObjectContentEvent;
+import com.amazonaws.services.s3.model.SelectObjectContentEventVisitor;
+import com.amazonaws.services.s3.model.SelectObjectContentRequest;
+import com.amazonaws.services.s3.model.SelectObjectContentResult;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.Weigher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
-import java.util.*;
-import java.util.concurrent.ExecutionException;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Scanner;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -20,11 +48,23 @@ public class S3Utils {
     // read objects in 4MB chunks
     private static final int streamingChunkSize = 4 * 1024 * 1024;
 
+    private static boolean enableMD5Validation = true;
+
     // in memory object cache
     private static final Cache<String, byte[]> cache = CacheBuilder.newBuilder()
             .maximumWeight(1024 * 1024 * 1024) // 1GB cache
             .weigher(new ObjectWeigher())
             .build();
+
+    // sets whether calls through this S3 util will validate with MD5
+    public static void setMD5Validation(final boolean enable) {
+        logger.info("configuring MD5 validation: enable={}", enable);
+        enableMD5Validation = enable;
+    }
+
+    public static boolean disableMD5Validation() {
+        return !enableMD5Validation;
+    }
 
     public static Collection<String> getKeys(final AmazonS3 s3Client,
                                              final String bucketName,
@@ -151,6 +191,10 @@ public class S3Utils {
                                  final ObjectMetadata metadata) throws IOException {
         final long before = System.nanoTime();
         try {
+            if (disableMD5Validation()) {
+                // disables md5 validation
+                metadata.setContentMD5(null);
+            }
             final PutObjectRequest putObjectRequest = new PutObjectRequest(bucketName, key, content, metadata);
             putObjectRequest.withCannedAcl(CannedAccessControlList.BucketOwnerFullControl);
             s3Client.putObject(putObjectRequest);

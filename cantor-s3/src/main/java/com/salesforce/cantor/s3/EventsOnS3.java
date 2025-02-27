@@ -16,24 +16,58 @@ import com.amazonaws.services.s3.model.Tag;
 import com.amazonaws.services.s3.transfer.MultipleFileUpload;
 import com.amazonaws.services.s3.transfer.TransferManager;
 import com.amazonaws.services.s3.transfer.TransferManagerBuilder;
-import com.google.common.cache.*;
-import com.google.common.util.concurrent.*;
-import com.google.gson.*;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.salesforce.cantor.Events;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Scanner;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.salesforce.cantor.common.EventsPreconditions.*;
+import static com.salesforce.cantor.common.EventsPreconditions.checkArgument;
+import static com.salesforce.cantor.common.EventsPreconditions.checkDimension;
+import static com.salesforce.cantor.common.EventsPreconditions.checkExpire;
+import static com.salesforce.cantor.common.EventsPreconditions.checkGet;
+import static com.salesforce.cantor.common.EventsPreconditions.checkMetadata;
+import static com.salesforce.cantor.common.EventsPreconditions.checkNamespace;
+import static com.salesforce.cantor.common.EventsPreconditions.checkState;
+import static com.salesforce.cantor.common.EventsPreconditions.checkStore;
+import static com.salesforce.cantor.common.EventsPreconditions.checkString;
 
 public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
     private static final Logger logger = LoggerFactory.getLogger(EventsOnS3.class);
@@ -116,6 +150,9 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
                                 .setNameFormat("cantor-s3-event-transfer-manager-" + this.bucketName + "-worker-%d")
                                 .build()
                 ));
+        if (S3Utils.disableMD5Validation()) {
+            builder.setAlwaysCalculateMultipartMd5(false);
+        }
         this.s3TransferManager = builder.build();
 
         // schedule flush cycle to start immediately
@@ -802,6 +839,9 @@ public class EventsOnS3 extends AbstractBaseS3Namespaceable implements Events {
         final MultipleFileUpload upload = this.s3TransferManager.uploadDirectory(this.bucketName, null, toUpload, true, (file, metadata) -> {
             // set object content type to plain text
             metadata.setContentType("text/plain");
+            if (S3Utils.disableMD5Validation()) {
+                metadata.setContentMD5(null);
+            }
         }, uploadContext -> {
             // extract the object namespace key and attach it as a tag
             final String key = uploadContext.getKey();

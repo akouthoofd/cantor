@@ -9,9 +9,14 @@ package com.salesforce.cantor.server.utils;
 
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.Protocol;
+import com.amazonaws.Request;
 import com.amazonaws.client.builder.AwsClientBuilder;
+import com.amazonaws.handlers.RequestHandler2;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest;
+import com.amazonaws.services.s3.model.PutObjectRequest;
+import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.google.common.base.Strings;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.salesforce.cantor.Cantor;
@@ -27,6 +32,7 @@ import com.salesforce.cantor.mysql.CantorOnMysql;
 import com.salesforce.cantor.mysql.MysqlDataSourceProperties;
 import com.salesforce.cantor.mysql.MysqlDataSourceProvider;
 import com.salesforce.cantor.s3.CantorOnS3;
+import com.salesforce.cantor.s3.S3Utils;
 import com.salesforce.cantor.server.CantorEnvironment;
 import com.typesafe.config.Config;
 import org.slf4j.Logger;
@@ -51,6 +57,7 @@ import static com.salesforce.cantor.server.Constants.CANTOR_MYSQL_USERNAME;
 import static com.salesforce.cantor.server.Constants.CANTOR_S3_BUCKET_NAME;
 import static com.salesforce.cantor.server.Constants.CANTOR_S3_BUCKET_REGION;
 import static com.salesforce.cantor.server.Constants.CANTOR_S3_ENDPOINT_OVERRIDE;
+import static com.salesforce.cantor.server.Constants.CANTOR_S3_FIPS_ENABLED;
 import static com.salesforce.cantor.server.Constants.CANTOR_S3_PROXY_HOST;
 import static com.salesforce.cantor.server.Constants.CANTOR_S3_PROXY_PORT;
 import static com.salesforce.cantor.server.Constants.CANTOR_S3_SETS_TYPE;
@@ -197,8 +204,14 @@ public class CantorFactory {
             .withMaxErrorRetry(3); // on errors, retry max of 3 times
 
         final boolean endpointOverride = config.hasPath(CANTOR_S3_ENDPOINT_OVERRIDE) && config.getBoolean(CANTOR_S3_ENDPOINT_OVERRIDE);
-        if (endpointOverride) {
+        final boolean fipsEnabled = config.hasPath(CANTOR_S3_FIPS_ENABLED) && config.getBoolean(CANTOR_S3_FIPS_ENABLED);
+        if (endpointOverride || fipsEnabled) {
             amazonS3ClientBuilder.withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(String.format("%s-fips", region), region));
+            if (fipsEnabled) {
+                logger.info("fips enabled, disabling md5...");
+                amazonS3ClientBuilder.withRequestHandlers(new NoMD5RequestInterceptor());
+                S3Utils.setMD5Validation(false);
+            }
         } else {
             amazonS3ClientBuilder.withRegion(region);
         }
@@ -217,5 +230,32 @@ public class CantorFactory {
         return Executors.newCachedThreadPool(
                 new ThreadFactoryBuilder().setNameFormat("cantor-worker-%d").build()
         );
+    }
+}
+
+/**
+ * Disable MD5 checks for S3 uploads.
+ */
+class NoMD5RequestInterceptor extends RequestHandler2 {
+    @Override
+    public void beforeRequest(Request<?> request) {
+        // handle putObject (MD5 is set via ObjectMetadata)
+        if (request.getOriginalRequest() instanceof PutObjectRequest) {
+            final PutObjectRequest putObjectRequest = (PutObjectRequest) request.getOriginalRequest();
+            if (putObjectRequest.getMetadata() != null) {
+                putObjectRequest.getMetadata().setContentMD5(null);  // Remove MD5
+            }
+        }
+        // handle multipart upload (uploadPart)
+        else if (request.getOriginalRequest() instanceof UploadPartRequest) {
+            final UploadPartRequest uploadPartRequest = (UploadPartRequest) request.getOriginalRequest();
+            uploadPartRequest.setMd5Digest(null);
+        }
+        // handle presigned URL generation for PUT (check if MD5 is present)
+        else if (request.getOriginalRequest() instanceof GeneratePresignedUrlRequest) {
+            final GeneratePresignedUrlRequest presignedUrlRequest = (GeneratePresignedUrlRequest) request.getOriginalRequest();
+            // MD5-related headers won't be set directly, but we can ensure that the presigned URL generation does not enforce MD5
+            presignedUrlRequest.setContentMd5(null);
+        }
     }
 }
