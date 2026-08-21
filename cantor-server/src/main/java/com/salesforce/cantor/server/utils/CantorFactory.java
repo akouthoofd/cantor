@@ -26,7 +26,6 @@ import com.salesforce.cantor.misc.sharded.ShardedCantor;
 import com.salesforce.cantor.mysql.CantorOnMysql;
 import com.salesforce.cantor.mysql.MysqlDataSourceProperties;
 import com.salesforce.cantor.mysql.MysqlDataSourceProvider;
-import com.salesforce.cantor.s3.CantorOnS3;
 import com.salesforce.cantor.selector.CantorOnS3withSelector;
 import com.salesforce.cantor.server.CantorEnvironment;
 import com.typesafe.config.Config;

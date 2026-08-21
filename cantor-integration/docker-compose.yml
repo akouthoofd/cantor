@@ -8,6 +8,7 @@ services:
     container_name: cantor-server
     ports:
       - "7443:7443"
+      - "5005:5005"
     networks:
       - cantor-network
     volumes:
@@ -16,7 +17,7 @@ services:
     environment:
       - CANTOR_STORAGE_TYPE=${CANTOR_STORAGE_TYPE}
       - CANTOR_S3_BUCKET=${CANTOR_S3_BUCKET}
-      - CANTOR_S3_SELECT_TYPE=${CANTOR_S3_SELECT_TYPE}
+      - JAVA_DEBUG_OPTS=${JAVA_DEBUG_OPTS:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

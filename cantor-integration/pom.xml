@@ -65,6 +65,33 @@
                     </execution>
                 </executions>
             </plugin>
+            <!--ASSEMBLY: build a self-contained, executable jar so the test
+                harness can run via `java -jar` without a Maven build at runtime-->
+            <plugin>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>2.5.3</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>com.salesforce.cantor.integration.IntegrationTestRunner</mainClass>
+                        </manifest>
+                    </archive>
+                    <descriptors>
+                        <descriptor>src/assembly/test-jar-with-dependencies.xml</descriptor>
+                    </descriptors>
+                    <finalName>cantor-integration</finalName>
+                    <appendAssemblyId>false</appendAssemblyId>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 </project>

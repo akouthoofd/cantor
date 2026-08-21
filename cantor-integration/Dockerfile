@@ -9,14 +9,10 @@ RUN mvn clean install -DskipTests -Dgpg.skip=true -Dmaven.javadoc.skip=true -Dso
 ENV CANTOR_SERVER_HOST=""
 ENV CANTOR_SERVER_PORT="7443"
 
-# Wrapper script to run tests
+# Wrapper script to run tests from the pre-built jar (no Maven build at runtime)
 COPY --chmod=755 <<'EOF' /entrypoint.sh
 #!/bin/sh
-mvn -q -pl cantor-integration test-compile exec:java \
-  -Dexec.mainClass=com.salesforce.cantor.integration.IntegrationTestRunner \
-  -Dexec.args="$*" \
-  -Dexec.classpathScope=test \
-  -Dgpg.skip=true
+java -jar /cantor/cantor-integration/target/cantor-integration.jar "$@"
 EOF
 
 ENTRYPOINT ["/entrypoint.sh"]

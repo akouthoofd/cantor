@@ -5,7 +5,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.TestNG;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 public class IntegrationTestRunner {
 
@@ -40,7 +43,7 @@ public class IntegrationTestRunner {
 
             List<BenchmarkStats> stats = new ArrayList<>();
 
-            for (final int eventCount: eventCounts) {
+            for (final int eventCount : eventCounts) {
                 testClass.getMethod("setEventCount", int.class).invoke(null, eventCount);
 
                 logger.info("Running tests for eventCount={}", eventCount);
@@ -56,7 +59,7 @@ public class IntegrationTestRunner {
                 }
 
                 Map<String, List<Long>> methods = new LinkedHashMap<>();
-                for (TimingListener.TestTiming t: timingListener.getResults()) {
+                for (TimingListener.TestTiming t : timingListener.getResults()) {
                     String key = t.getMethodName();
                     List<Long> values = methods.get(key);
                     if (values == null) {
@@ -91,3 +94,4 @@ public class IntegrationTestRunner {
 
         System.exit(exitCode);
     }
+}
