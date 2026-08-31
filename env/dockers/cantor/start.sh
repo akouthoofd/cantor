@@ -11,4 +11,4 @@ if [[ -n ${MYSQL_SHARDS} ]]; then
 fi
 
 # start the cantor server with all parameters passed to command line
-java -jar -Dlogback.configurationFile=./cantor-logback.xml cantor-server.jar $@
+java ${JAVA_DEBUG_OPTS} -jar -Dlogback.configurationFile=./cantor-logback.xml cantor-server.jar $@
